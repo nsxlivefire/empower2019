@@ -1,0 +1,101 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: yes
+  vars_files:
+    - livefire_answerfile.yml
+  tasks:
+
+    - name: Collect T0 Router-id
+      uri:
+        method: GET
+        url: https://{{hostname}}/api/v1/logical-routers
+        user: "admin"
+        password: "VMware1!"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+      register: result
+
+    - name: Read BGP configuration on T0 router
+      uri:
+        method: GET
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/bgp
+        user: "admin"
+        password: "VMware1!"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+      register: result2
+
+    - name: Enable BGP on T0 router
+      uri:
+        method: PUT
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/bgp
+        user: "admin"
+        password: "VMware1!"
+        body:
+          resource_type: BgpConfig
+          description: "Uplink to external"
+          display_name: "Uplink to external"
+          as_num: 65001
+          graceful_restart: false
+          enabled: true
+          ecmp: true
+          _revision: "{{result2.json._revision}}"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+
+    - name: Read BGP configuration on T0 router
+      uri:
+        method: GET
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/bgp
+        user: "admin"
+        password: "VMware1!"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+      register: result3
+
+    - name: Configure BGP peering to CSR-01a
+      uri:
+        method: POST
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/bgp/neighbors
+        user: "admin"
+        password: "VMware1!"
+        body:
+          display_name: neighbor1
+          neighbor_address: "192.168.254.9"
+          remote_as_num: 65002
+          address_families:
+          -
+            type: IPV4_UNICAST
+            enabled: true
+          source_addresses:
+            - 192.168.254.13
+            - 192.168.254.14
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+
+    - name: Configure BGP peering to CSR-02a
+      uri:
+        method: POST
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/bgp/neighbors
+        user: "admin"
+        password: "VMware1!"
+        body:
+          display_name: neighbor2
+          neighbor_address: "192.168.254.17"
+          remote_as_num: 65002
+          address_families:
+          -
+            type: IPV4_UNICAST
+            enabled: true
+          source_addresses:
+            - 192.168.254.21
+            - 192.168.254.22
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no

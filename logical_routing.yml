@@ -1,0 +1,268 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: yes
+  vars_files:
+    - livefire_answerfile.yml
+  tasks:
+    - name: Check manager status
+      nsxt_manager_status:
+          hostname: "{{hostname}}"
+          username: "{{username}}"
+          password: "{{password}}"
+          validate_certs: False
+          wait_time: 50
+
+    - name: Collect Ext1_PG Network id
+      command: sudo pwsh ./Ext1_PG_key.ps1
+      register: Ext1_PG_key
+
+    - name: Collect Ext2_PG Network id
+      command: sudo pwsh ./Ext2_PG_key.ps1
+      register: Ext2_PG_key
+
+    - name: Collect Transport_PG Network id
+      command: sudo pwsh ./Transport_PG_key.ps1
+      register: Transport_PG_key
+
+    - name: Create Edge VLAN transport zones
+      nsxt_transport_zones:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: "TransportZone"
+        display_name: "{{item.display_name}}"
+        description: ""
+        transport_type: "{{item.transport_type}}"
+        host_switch_name: "{{item.host_switch_name}}"
+        state: "present"
+      with_items:
+        - "{{edge_vlan_transportzones}}"
+
+    - name: Create uplink profile for edge nodes
+      nsxt_uplink_profiles:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: UplinkHostSwitchProfile
+        display_name: "{{item.display_name}}"
+        mtu: 1700
+        teaming: "{{item.teaming}}"
+        transport_vlan: "{{item.transport_vlan}}"
+        state: "present"
+      with_items:
+        - "{{uplink_profiles_edges}}"
+
+    - name: Create edge transport nodes
+      nsxt_transport_nodes:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: TransportNode
+        display_name: "{{item.display_name}}"
+        description: NSX configured Transport Node
+        host_switch_spec:
+          resource_type: StandardHostSwitchSpec
+          host_switches: "{{item.host_switches}}"
+        transport_zone_endpoints: "{{item.transport_zone_endpoints}}"
+        fabric_node_name: "{{item.fabric_node_name}}"
+        state: present
+      with_items:
+        - "{{edges_transport_nodes}}"
+
+    - name: Create uplink VLAN EXT1
+      nsxt_logical_switches:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "VLAN-Ext1Ls"
+        replication_mode: SOURCE
+        admin_state: UP
+        transport_zone_name: "EXT1-TZ"
+        vlan: 0
+        state: "present"
+
+    - name: Create uplink VLAN EXT2
+      nsxt_logical_switches:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "VLAN-Ext2Ls"
+        replication_mode: SOURCE
+        admin_state: UP
+        transport_zone_name: "EXT2-TZ"
+        vlan: 0
+        state: "present"
+
+    - name: List cluster profiles
+      nsxt_cluster_profiles_facts:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+      check_mode: yes
+      register: cluster_profiles
+
+    - name: Add edge cluster
+      nsxt_edge_clusters:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: edge-cluster-1-SiteA
+        cluster_profile_bindings:
+        - profile_id: '{{ cluster_profiles["results"][1]["id"] }}'
+          resource_type: EdgeHighAvailabilityProfile
+        members:
+        - transport_node_name: "Edge01"
+        - transport_node_name: "Edge02"
+        state: present
+
+    - name: Create T0 logical router
+      nsxt_logical_routers:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "t0-infrastructure-SiteA"
+        edge_cluster_name: edge-cluster-1-SiteA
+        router_type: TIER0
+        high_availability_mode: ACTIVE_ACTIVE
+        state: "present"
+      register: t0
+
+    - name: Create first logical port on EXT1_VLAN LS to connect T0 router
+      nsxt_logical_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "T0-Ext1LpA"
+        logical_switch_name: "VLAN-Ext1Ls"
+        admin_state: UP
+        state: "present"
+      register: lsp_T0_EXT1a
+
+    - name: Create first logical port on EXT2_VLAN LS to connect T0 router
+      nsxt_logical_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "T0-Ext2LpA"
+        logical_switch_name: "VLAN-Ext2Ls"
+        admin_state: UP
+        state: "present"
+      register: lsp_T0_EXT2a
+
+    - name: Create second logical port on EXT1_VLAN LS to connect T0 router
+      nsxt_logical_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "T0-Ext1LpB"
+        logical_switch_name: "VLAN-Ext1Ls"
+        admin_state: UP
+        state: "present"
+      register: lsp_T0_EXT1b
+
+    - name: Create second logical port on EXT2_VLAN LS to connect T0 router
+      nsxt_logical_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "T0-Ext2LpB"
+        logical_switch_name: "VLAN-Ext2Ls"
+        admin_state: UP
+        state: "present"
+      register: lsp_T0_EXT2b
+
+    - name: Create logical router port on T0 router EN1 to interconnect uplink VLAN EXT1
+      nsxt_logical_router_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: LRP-VLAN-Ext1Ls_EN1
+        resource_type: LogicalRouterUpLinkPort
+        logical_router_id: "{{t0.id}}"
+        edge_cluster_member_index: [0]
+        linked_logical_switch_port_id:
+          target_type: LogicalPort
+          target_id:  "{{lsp_T0_EXT1a.id }}"
+        subnets:
+        - ip_addresses:
+          - 192.168.254.13
+          prefix_length: 29
+        state: "present"
+
+    - name: Create logical router port on T0 router EN2 to interconnect uplink VLAN EXT2
+      nsxt_logical_router_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: LRP-VLAN-Ext2Ls_EN2
+        resource_type: LogicalRouterUpLinkPort
+        logical_router_id: "{{t0.id}}"
+        edge_cluster_member_index: [1]
+        linked_logical_switch_port_id:
+          target_type: LogicalPort
+          target_id:  "{{lsp_T0_EXT2a.id }}"
+        subnets:
+        - ip_addresses:
+          - 192.168.254.21
+          prefix_length: 29
+        state: "present"
+
+
+    - name: Create logical router port on T0 router EN2 to interconnect uplink VLAN EXT1
+      nsxt_logical_router_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: LRP-VLAN-Ext1Ls_EN2
+        resource_type: LogicalRouterUpLinkPort
+        logical_router_id: "{{t0.id}}"
+        edge_cluster_member_index: [1]
+        linked_logical_switch_port_id:
+          target_type: LogicalPort
+          target_id:  "{{lsp_T0_EXT1b.id }}"
+        subnets:
+        - ip_addresses:
+          - 192.168.254.14
+          prefix_length: 29
+        state: "present"
+
+    - name: Create logical router port on T0 router EN1 to interconnect uplink VLAN EXT2
+      nsxt_logical_router_ports:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: LRP-VLAN-Ext2Ls_EN1
+        resource_type: LogicalRouterUpLinkPort
+        logical_router_id: "{{t0.id}}"
+        edge_cluster_member_index: [0]
+        linked_logical_switch_port_id:
+          target_type: LogicalPort
+          target_id:  "{{lsp_T0_EXT2b.id }}"
+        subnets:
+        - ip_addresses:
+          - 192.168.254.22
+          prefix_length: 29
+        state: "present"
+
+
+
+
+
+        

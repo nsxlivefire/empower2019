@@ -1,0 +1,90 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: yes
+  vars_files:
+    - livefire_answerfile.yml
+  tasks:
+    - name: Check manager status
+      nsxt_manager_status:
+          hostname: "{{hostname}}"
+          username: "{{username}}"
+          password: "{{password}}"
+          validate_certs: False
+          wait_time: 50
+
+    - name: Enable auto install of NSX for specified clusters
+      nsxt_compute_collection_fabric_templates:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "Cluster_01a-fabric_template"
+        compute_manager_name: "vcsa-01a"
+        cluster_name: "Cluster-01a"
+        auto_install_nsx: True
+        state: present
+      with_items:
+        - "Cluster-01a"
+      register: auto_install_nsx_result
+
+    - name: Create uplink profile for ESXi hosts
+      nsxt_uplink_profiles:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: UplinkHostSwitchProfile
+        display_name: "{{item.display_name}}"
+        mtu: 1700
+        teaming: "{{item.teaming}}"
+        transport_vlan: "{{item.transport_vlan}}"
+        state: "present"
+      with_items:
+        - "{{uplink_profiles_hosts}}"
+
+    - name: Create overlay transport zone
+      nsxt_transport_zones:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: "TransportZone"
+        display_name: "{{item.display_name}}"
+        description: ""
+        transport_type: "{{item.transport_type}}"
+        host_switch_name: "{{item.host_switch_name}}"
+        state: "present"
+      with_items:
+        - "{{overlay_transportzones}}"
+
+    - name: Create ip pool for TEP interfaces
+      nsxt_ip_pools:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "{{item.display_name}}"
+        subnets: "{{item.subnets}}"
+        state: present
+      with_items:
+        - "{{ip_pools}}"
+
+    - name: Create transport node
+      nsxt_transport_nodes:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: TransportNode
+        display_name: "{{item.display_name}}"
+        description: NSX configured Transport Node
+        host_switch_spec:
+          resource_type: StandardHostSwitchSpec
+          host_switches: "{{item.host_switches}}"
+        transport_zone_endpoints: "{{item.transport_zone_endpoints}}"
+        fabric_node_name: "{{item.fabric_node_name}}"
+        state: present
+      with_items:
+        - "{{transport_nodes}}" 
+
