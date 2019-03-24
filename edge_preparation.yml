@@ -1,0 +1,124 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: yes
+  vars_files:
+    - livefire_answerfile.yml
+  tasks:
+    - name: Check manager status
+      nsxt_manager_status:
+          hostname: "{{hostname}}"
+          username: "{{username}}"
+          password: "{{password}}"
+          validate_certs: False
+          wait_time: 50
+
+    - name: Collect Ext1_PG Network id
+      command: sudo pwsh ./Ext1_PG_key.ps1
+      register: Ext1_PG_key
+
+    - name: Collect Ext2_PG Network id
+      command: sudo pwsh ./Ext2_PG_key.ps1
+      register: Ext2_PG_key
+
+    - name: Collect Transport_PG Network id
+      command: sudo pwsh ./Transport_PG_key.ps1
+      register: Transport_PG_key
+
+    - name: Create Edge VLAN transport zones
+      nsxt_transport_zones:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: "TransportZone"
+        display_name: "{{item.display_name}}"
+        description: ""
+        transport_type: "{{item.transport_type}}"
+        host_switch_name: "{{item.host_switch_name}}"
+        state: "present"
+      with_items:
+        - "{{edge_vlan_transportzones}}"
+
+    - name: Create uplink profile for edge nodes
+      nsxt_uplink_profiles:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: UplinkHostSwitchProfile
+        display_name: "{{item.display_name}}"
+        mtu: 1700
+        teaming: "{{item.teaming}}"
+        transport_vlan: "{{item.transport_vlan}}"
+        state: "present"
+      with_items:
+        - "{{uplink_profiles_edges}}"
+
+    - name: Create edge transport nodes
+      nsxt_transport_nodes:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        resource_type: TransportNode
+        display_name: "{{item.display_name}}"
+        description: NSX configured Transport Node
+        host_switch_spec:
+          resource_type: StandardHostSwitchSpec
+          host_switches: "{{item.host_switches}}"
+        transport_zone_endpoints: "{{item.transport_zone_endpoints}}"
+        fabric_node_name: "{{item.fabric_node_name}}"
+        state: present
+      with_items:
+        - "{{edges_transport_nodes}}"
+
+    - name: Create uplink VLAN EXT1
+      nsxt_logical_switches:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "VLAN-Ext1Ls"
+        replication_mode: SOURCE
+        admin_state: UP
+        transport_zone_name: "EXT1-TZ"
+        vlan: 0
+        state: "present"
+
+    - name: Create uplink VLAN EXT2
+      nsxt_logical_switches:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: "VLAN-Ext2Ls"
+        replication_mode: SOURCE
+        admin_state: UP
+        transport_zone_name: "EXT2-TZ"
+        vlan: 0
+        state: "present"
+
+    - name: List cluster profiles
+      nsxt_cluster_profiles_facts:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+      check_mode: yes
+      register: cluster_profiles
+
+    - name: Add edge cluster
+      nsxt_edge_clusters:
+        hostname: "{{hostname}}"
+        username: "{{username}}"
+        password: "{{password}}"
+        validate_certs: False
+        display_name: edge-cluster-1-SiteA
+        cluster_profile_bindings:
+        - profile_id: '{{ cluster_profiles["results"][1]["id"] }}'
+          resource_type: EdgeHighAvailabilityProfile
+        members:
+        - transport_node_name: "Edge01"
+        - transport_node_name: "Edge02"
+        state: present
