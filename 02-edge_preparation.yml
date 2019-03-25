@@ -5,13 +5,6 @@
   vars_files:
     - livefire_answerfile.yml
   tasks:
-    - name: Check manager status
-      nsxt_manager_status:
-          hostname: "{{hostname}}"
-          username: "{{username}}"
-          password: "{{password}}"
-          validate_certs: False
-          wait_time: 50
 
     - name: Collect Ext1_PG Network id
       command: sudo pwsh ./Ext1_PG_key.ps1

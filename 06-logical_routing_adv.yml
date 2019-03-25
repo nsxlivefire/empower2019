@@ -1,0 +1,109 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: yes
+  vars_files:
+    - livefire_answerfile.yml
+  tasks:
+
+    - name: Collect T0 and T1 Router-id
+      uri:
+        method: GET
+        url: https://{{hostname}}/api/v1/logical-routers
+        user: "admin"
+        password: "VMware1!"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+      register: result
+
+    - name: Read routing advertisement configuration on T1 router
+      uri:
+        method: GET
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[1].id}}/routing/advertisement
+        user: "admin"
+        password: "VMware1!"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+      register: T1adv
+
+    - name: Enable routing advertisement on T1 router
+      uri:
+        method: PUT
+        url:  https://{{hostname}}/api/v1/logical-routers/{{result.json.results[1].id}}/routing/advertisement
+        user: "admin"
+        password: "VMware1!"
+        body:
+          resource_type: "AdvertisementConfig"
+          advertise_nsx_connected_routes: true
+          advertise_static_routes: true
+          advertise_nat_routes: true
+          advertise_lb_vip: true
+          advertise_lb_snat_ip: true
+          enabled: true
+          _revision: "{{T1adv.json._revision}}"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+
+    - name: Read routing redistribution configuration on T0 router
+      uri:
+        method: GET
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/redistribution
+        user: "admin"
+        password: "VMware1!"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+      register: T0red
+
+    - name: Enable routing redistribution on T0 router
+      uri:
+        method: PUT
+        url:  https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/redistribution
+        user: "admin"
+        password: "VMware1!"
+        body:
+          resource_type: "RedistributionConfig"
+          bgp_enabled: true
+          _revision: "{{T0red.json._revision}}"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+
+    - name: Read routing redistribution rules configuration on T0 router
+      uri:
+        method: GET
+        url: https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/redistribution/rules
+        user: "admin"
+        password: "VMware1!"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
+      register: T0redrules
+
+    - name: Add routing redistribution rule ALL on T0 router
+      uri:
+        method: PUT
+        url:  https://{{hostname}}/api/v1/logical-routers/{{result.json.results[0].id}}/routing/redistribution/rules
+        user: "admin"
+        password: "VMware1!"
+        body:
+          resource_type: "RedistributionRuleList"
+          rules:
+          - display_name: everything-into-bgp
+            description: BGP learns all routes
+            destination: BGP
+            sources:
+            - STATIC
+            - NSX_CONNECTED
+            - NSX_STATIC
+            - TIER0_NAT
+            - TIER1_NAT
+            - TIER1_LB_VIP
+            - TIER1_LB_SNAT
+          _revision: "{{T0redrules.json._revision}}"
+        body_format: json
+        force_basic_auth: yes
+        validate_certs: no
